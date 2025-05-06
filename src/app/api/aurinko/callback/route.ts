@@ -1,59 +1,49 @@
-import { getAccountDetails, exchangeCodeForAccessToken } from "@/lib/aurinko";
-// import { waitUntil } from '@vercel/functions';
+//api/aurinko/callback
+
+import { exchangeCodeForAccessToken, getAccountDetails } from "@/lib/aurinko";
 import { db } from "@/server/db";
 import { auth } from "@clerk/nextjs/server";
-import axios from "axios";
-import { type NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
-export const GET = async (req: NextRequest) => {
-    const { userId } = await auth();
+export const GET = async (request: NextRequest) => {
+    const {userId} = await auth();
     if (!userId) {
-        return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+        return NextResponse.json({error: "Unauthorized"}, {status: 401});
     }
-
-    const params = req.nextUrl.searchParams;
-    const status = params.get('status');
-    if (status !== 'success') {
-        return NextResponse.json({ error: "Account connection failed" }, { status: 400 });
+    const params = request.nextUrl.searchParams;
+    const status = params.get("status");
+    if(status !== "success") {
+        return NextResponse.json({error: "Failed to Link Account"}, {status: 401});   
     }
-
-    const code = params.get('code');
-    if (!code) {
-        return NextResponse.json({ error: "Missing authorization code" }, { status: 400 });
+    //get the code to exchange for the access token
+    const code = params.get("code");
+    if(!code) {
+        return NextResponse.json({error: "No code provided"}, {status: 400});
     }
-
-    const token = await exchangeCodeForAccessToken(code as string);
-    if (!token) {
-        return NextResponse.json({ error: "Failed to fetch token" }, { status: 400 });
+    const token = await exchangeCodeForAccessToken(code);
+    if(!token) {
+        return NextResponse.json({error: "Failed to exchange code for access token"}, {status: 401});
     }
 
     const accountDetails = await getAccountDetails(token.accessToken);
 
     await db.account.upsert({
-        where: { id: token.accountId.toString() },
-        create: {
-            id: token.accountId.toString(),
-            userId,
-            token: token.accessToken,
-            provider: 'Aurinko',
-            emailAddress: accountDetails.email,
-            name: accountDetails.name,
+        where: {
+            id: token.accountId.toString()
         },
         update: {
-            token: token.accessToken,
+            accessToken: token.accessToken,
+           
+        },
+        create: {  
+            id: token.accountId.toString(),
+            userId,
+            emailAddress: accountDetails.email,
+            name: accountDetails.name,
+            accessToken: token.accessToken,
         }
-    });
 
-    // waitUntil(
-    //     axios.post(`${process.env.NEXT_PUBLIC_URL}/api/initial-sync`, {
-    //         accountId: token.accountId.toString(),
-    //         userId,
-    //     }).then((res) => {
-    //         console.log(res.data);
-    //     }).catch((err) => {
-    //         console.error(err.response?.data || err.message);
-    //     })
-    // );
+    })
 
-    return NextResponse.redirect(new URL('/mail', req.url));
-};
+    return NextResponse.json({message: "Hello from Aurinko callback"}); 
+}
